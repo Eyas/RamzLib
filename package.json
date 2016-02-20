@@ -1,0 +1,29 @@
+{
+    "name": "RamzLib",
+    "authors": [ "Eyas Sharaiha" ],
+    "homepage": "https://github.com/Eyas/RamzLib/",
+    "version": "0.1.0",
+    "license": "MIT",
+    "description": "A library for functional and asynchronous TypeScript",
+    "keywords": [
+        "TypeScript",
+        "javascript",
+        "functional",
+        "observable",
+        "polymorphic"
+    ],
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/Eyas/RamzLib.git"
+    },
+    "devDependencies": {
+        "jasmine-core": "*",
+        "typescript": "latest",
+        "tsd": "latest",
+        "gulp": "latest",
+        "del": "latest",
+        "gulp-typescript": "latest",
+        "gulp-jasmine": "latest",
+        "merge2": "latest"
+    }
+}
