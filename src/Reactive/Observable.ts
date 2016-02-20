@@ -203,7 +203,7 @@ export class Observable<T> implements ObservableLike<T> {
     
     // static creation functions
     static interval(timeout: number): Observable<number> {
-        return new Observable((trigger, done) => {
+        return new Observable((trigger, done, fail) => {
            var count = 0;
            setInterval(() => {
                trigger(count);
@@ -213,17 +213,17 @@ export class Observable<T> implements ObservableLike<T> {
         });
     }
     static fromArray<T>(array: T[]): Observable<T> {
-        return new Observable((trigger, done) => {
+        return new Observable((trigger, done, fail) => {
             array.forEach(trigger);
             done();
         })
     }
     static fromPromise<T>(p: Promise<T>): Observable<T> {
-        return new Observable((trigger, done) => {
+        return new Observable((trigger, done, fail) => {
            p.then(v => {
                trigger(v);
                done();
-           });
+           }).catch(fail);
         });
     }
     static just<T>(val: T): Observable<T> {
