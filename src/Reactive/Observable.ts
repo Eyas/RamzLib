@@ -17,9 +17,10 @@ export type Signal = () => void;
 export class Observable<T> implements ObservableLike<T> {
     // caller of Observable<T> constructor should do something similar
     // to that of Promise<T>:
-    // var obs = new Observable<T>((trigger, done) => {
+    // var obs = new Observable<T>((trigger, done, fail) => {
     //     ... call trigger(obj) when needed
-    //     ... call done() once compelte
+    //     ... call done() once complete
+    //     ... call fail(err) with error if a failed condition happens
     // })
     constructor(executor: (trigger: (obj: T) => void, done: Signal, fail: (err: any)=>void) => void) {
         var self = this;
