@@ -252,6 +252,7 @@ export class Subscription<T> extends Observable<T> {
     dispose(): void {
         // we'll just re-implement done again, better than exposing it to the naughties
         this._callbacks && this._callbacks.forEach(d => d.resolve());
+        this._callbacks = undefined;
     }
     
     // static creation functions
