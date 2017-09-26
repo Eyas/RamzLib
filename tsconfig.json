@@ -1,6 +1,7 @@
 {
     "compilerOptions": {
         "noImplicitAny": true,
+        "strictNullChecks": true,
         "target": "es6",
         "outDir": "./built/"
     }

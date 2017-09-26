@@ -2,13 +2,17 @@
 
 export interface ObservableLike<T> {
     forEach(each: (obj: T) => void): void;
-    map<R>(mapper: (obj: T) => R): ObservableLike<R>
-    flatMap<R>(mapper: (obj: T) => Observable<R>): ObservableLike<R>
-    filter<R>(mapper: (obj: T) => boolean): ObservableLike<T>
+    map<R>(mapper: (obj: T) => R): ObservableLike<R>;
+    flatMap<R>(mapper: (obj: T) => Observable<R>): ObservableLike<R>;
+    filter(mapper: (obj: T) => boolean): ObservableLike<T>;
+    reduce<R>(initialValue: R, accumulate: (residue: R, next: T) => R): Observable<R>;
 }
 
 export type Listener<T> = (obj: T) => any;
 export type Signal = () => void;
+
+// Implementation detail of Observable
+type CallbackItem<T> = { listener: Listener<T>, resolve: Signal, reject: (err: any) => void };
 
 /**
  * Provides access to a stream of events that could be listened to and operated on
@@ -33,19 +37,21 @@ export class Observable<T> implements ObservableLike<T> {
                     cb.listener(obj);
                 } catch (e) {
                     cb.reject(e);
-                    self._callbacks[idx] = undefined;
+                    if (self._callbacks) {
+                        self._callbacks[idx] = null;
+                    }
                 }
             });
         };
 
         var done = () => {
             // we choose to silently no-op if done is called multiple times
-            self._callbacks && self._callbacks.forEach(d => d.resolve());
+            self._callbacks && self._callbacks.forEach(d => d && d.resolve());
             self._callbacks = undefined;
         };
 
         var fail = (err: any) => {
-            self._callbacks && self._callbacks.forEach(d => d.reject(err));
+            self._callbacks && self._callbacks.forEach(d => d && d.reject(err));
             self._callbacks = undefined;
         };
 
@@ -58,7 +64,7 @@ export class Observable<T> implements ObservableLike<T> {
             return Promise.resolve();
         }
         return new Promise<void>((resolve, reject) => {
-            self._callbacks.push({ listener: each, resolve: resolve, reject: reject });
+            self._callbacks!.push({ listener: each, resolve: resolve, reject: reject });
         });
     }
     map<R>(mapper: (obj: T) => R): Observable<R> {
@@ -152,11 +158,22 @@ export class Observable<T> implements ObservableLike<T> {
         var self = this;
         if (this.isDone()) return Promise.resolve(action());
         else return new Promise((resolve, reject) => {
-            this._callbacks.push({
+            // isDone() is true iff _callbacks is undefined
+            this._callbacks!.push({
                 listener: () => {},
                 resolve: () => resolve(action()),
                 reject: reject });
         });
+    }
+
+    /**
+     * @returns  an array of all values observed since this subscription
+     */
+    collect(): Promise<T[]> {
+        if (this.isDone()) return Promise.resolve([]);
+
+        var c: T[] = [];
+        return this.forEach(t => c.push(t)).then(() => c);
     }
 
     /**
@@ -192,7 +209,8 @@ export class Observable<T> implements ObservableLike<T> {
     isDone(): boolean {
         return this._callbacks === undefined;
     }
-    protected _callbacks: { listener: Listener<T>, resolve: Signal, reject: (err: any) => void}[] = [];
+
+    protected _callbacks: undefined|Array<CallbackItem<T>|null> = [];
 
     // static manipulation functions
     static merge<T>(a: Observable<T>, b: Observable<T>): Observable<T> {
@@ -251,7 +269,7 @@ export class Subscription<T> extends Observable<T> {
 
     dispose(): void {
         // we'll just re-implement done again, better than exposing it to the naughties
-        this._callbacks && this._callbacks.forEach(d => d.resolve());
+        this._callbacks && this._callbacks.forEach(d => d && d.resolve());
         this._callbacks = undefined;
     }
     
@@ -266,8 +284,8 @@ export class Subscription<T> extends Observable<T> {
            // done() is never called
         });
     }
-    static fromListener(element: HTMLElement, event: string): Subscription<Event> {
-        var sub = new Subscription<Event>((trigger, done) => {
+    static fromListener<K extends keyof HTMLElementEventMap>(element: HTMLElement, event: K): Subscription<HTMLElementEventMap[K]> {
+        var sub = new Subscription<HTMLElementEventMap[K]>((trigger, done) => {
             element.addEventListener(event, (cb: Event) => trigger(cb));
             sub.then(() => element.removeEventListener(event, trigger));
         });
