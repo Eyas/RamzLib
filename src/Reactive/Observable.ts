@@ -26,102 +26,93 @@ export class Observable<T> implements ObservableLike<T> {
     //     ... call done() once complete
     //     ... call fail(err) with error if a failed condition happens
     // })
-    constructor(executor: (trigger: (obj: T) => void, done: Signal, fail: (err: any)=>void) => void) {
-        var self = this;
-        var trigger = (obj: T) => {
+    constructor(executor: (trigger: (obj: T) => void, done: Signal, fail: (err: any) => void) => void) {
+        const trigger = (obj: T) => {
             // we choose to silently no-op if trigger happens after done
-            self._callbacks && self._callbacks.forEach((cb, idx) => {
+            this._callbacks && this._callbacks.forEach((cb, idx) => {
                 if (!cb) return;
 
                 try {
                     cb.listener(obj);
                 } catch (e) {
                     cb.reject(e);
-                    if (self._callbacks) {
-                        self._callbacks[idx] = null;
+                    if (this._callbacks) {
+                        this._callbacks[idx] = undefined;
                     }
                 }
             });
         };
 
-        var done = () => {
+        const done = () => {
             // we choose to silently no-op if done is called multiple times
-            self._callbacks && self._callbacks.forEach(d => d && d.resolve());
-            self._callbacks = undefined;
+            this._callbacks && this._callbacks.forEach(d => d && d.resolve());
+            this._callbacks = undefined;
         };
 
-        var fail = (err: any) => {
-            self._callbacks && self._callbacks.forEach(d => d && d.reject(err));
-            self._callbacks = undefined;
+        const fail = (err: any) => {
+            this._callbacks && this._callbacks.forEach(d => d && d.reject(err));
+            this._callbacks = undefined;
         };
 
         executor(trigger, done, fail);
     }
     forEach(each: (obj: T) => void): Promise<void> {
-        var self = this;
-        if (self.isDone()) {
+        if (this.isDone()) {
             // signal `done` if isDone already.
             return Promise.resolve();
         }
         return new Promise<void>((resolve, reject) => {
-            self._callbacks!.push({ listener: each, resolve: resolve, reject: reject });
+            this._callbacks!.push({ listener: each, resolve, reject });
         });
     }
     map<R>(mapper: (obj: T) => R): Observable<R> {
-        var self = this; // not necessary with arrow functions?
         return new Observable<R>((trigger, done, fail) => {
-            self.forEach(obj => trigger(mapper(obj)));
+            this.forEach(obj => trigger(mapper(obj)));
         });
     }
     filter(predicate: (obj: T) => boolean): Observable<T> {
-        var self = this;
         return new Observable<T>((trigger, done, fail) => {
-            self.forEach(obj => {
+            this.forEach(obj => {
                 if (predicate(obj)) trigger(obj);
             }).then(done).catch(fail);
         });
     }
     filterWhere<R extends T>(predicate: (obj: T) => obj is R): Observable<R> {
-        var self = this;
         return new Observable<R>((trigger, done, fail) => {
-            self.forEach(obj => {
+            this.forEach(obj => {
                 if (predicate(obj)) trigger(obj);
             }).then(done).catch(fail);
         });
     }
     flatMap<R>(mapper: (obj: T) => Observable<R>): Observable<R> {
-        var self = this;
         return new Observable<R>((trigger, done, fail) => {
             // TODO: flatMap currently never terminates; unclear which
             // `done` to take seriously or how do we know when all is done
-            self.forEach(obj => mapper(obj).forEach(trigger));
+            this.forEach(obj => mapper(obj).forEach(trigger));
         });
     }
     reduce<R>(initialValue: R, reducer: (v1: R, v2: T) => R): Observable<R> {
-        var self = this;
         return new Observable<R>((trigger, done, fail) => {
             trigger(initialValue);
-            self.forEach(obj => {
+            this.forEach(obj => {
                 initialValue = reducer(initialValue, obj);
                 trigger(initialValue);
             }).then(done).catch(fail);
         });
     }
     concat(other: Observable<T>): Observable<T> {
-        var self = this;
         return new Observable<T>((trigger, done, fail) => {
-            self.forEach(trigger).then(() => other.forEach(trigger)).then(done).catch(fail);
+            this.forEach(trigger).then(() => other.forEach(trigger)).then(done).catch(fail);
         });
     }
     all(predicate: (t: T) => boolean): Promise<boolean> {
-        var self = this;
         return new Promise<boolean>((resolve, reject) => {
-            if (self.isDone()) {
+            if (this.isDone()) {
                 resolve(true);
                 return;
             }
-            var resolved = false;
-            self.forEach(obj => {
+            let resolved = false;
+            this.forEach(obj => {
                 if (!predicate(obj)) {
                     resolved = true;
                     resolve(false);
@@ -132,14 +123,13 @@ export class Observable<T> implements ObservableLike<T> {
         });
     }
     any(predicate: (t: T) => boolean): Promise<boolean> {
-        var self = this;
         return new Promise<boolean>((resolve, reject) => {
-            if (self.isDone()) {
+            if (this.isDone()) {
                 resolve(false);
                 return;
             }
-            var resolved = false;
-            self.forEach(obj => {
+            let resolved = false;
+            this.forEach(obj => {
                 if (predicate(obj)) {
                     resolved = true;
                     resolve(true);
@@ -152,18 +142,18 @@ export class Observable<T> implements ObservableLike<T> {
 
     /**
      * @param action  specifies the action to be taken once the observable has completed.
-     * @returns       a Promise which resolves only when the Observable has completed. 
+     * @returns       a Promise which resolves only when the Observable has completed.
      */
-    then<R>(action: ()=>R): Promise<R> {
-        var self = this;
+    then<R>(action: () => R): Promise<R> {
         if (this.isDone()) return Promise.resolve(action());
-        else return new Promise((resolve, reject) => {
+        else { return new Promise((resolve, reject) => {
             // isDone() is true iff _callbacks is undefined
             this._callbacks!.push({
                 listener: () => {},
                 resolve: () => resolve(action()),
-                reject: reject });
+                reject });
         });
+    }
     }
 
     /**
@@ -172,7 +162,7 @@ export class Observable<T> implements ObservableLike<T> {
     collect(): Promise<T[]> {
         if (this.isDone()) return Promise.resolve([]);
 
-        var c: T[] = [];
+        const c: T[] = [];
         return this.forEach(t => c.push(t)).then(() => c);
     }
 
@@ -181,24 +171,22 @@ export class Observable<T> implements ObservableLike<T> {
      * @returns  a new observable which triggers on each event after the first n.
      */
     skipN(n: number): Observable<T> {
-        var self = this;
         return new Observable<T>((trigger, done, fail) => {
-            self.forEach(obj => {
+            this.forEach(obj => {
                 if (n <= 0) trigger(obj);
                 else n--;
             }).then(done).catch(fail);
         });
     }
-    
+
     /**
      * @param t  interval to skip before events are issued
      * @returns  a new observable which triggers on each event after t milliseconds.
      */
     skipT(t: number): Observable<T> {
-        var self = this;
         return new Observable<T>((trigger, done, fail) => {
             setTimeout(() => {
-                self.forEach(trigger).then(done).catch(fail);
+                this.forEach(trigger).then(done).catch(fail);
             }, t);
         });
     }
@@ -210,7 +198,7 @@ export class Observable<T> implements ObservableLike<T> {
         return this._callbacks === undefined;
     }
 
-    protected _callbacks: undefined|Array<CallbackItem<T>|null> = [];
+    protected _callbacks?: (CallbackItem<T>|undefined)[] = [];
 
     // static manipulation functions
     static merge<T>(a: Observable<T>, b: Observable<T>): Observable<T> {
@@ -219,11 +207,11 @@ export class Observable<T> implements ObservableLike<T> {
             b.forEach(trigger);
         });
     }
-    
+
     // static creation functions
     static interval(timeout: number): Observable<number> {
         return new Observable((trigger, done, fail) => {
-           var count = 0;
+           let count = 0;
            setInterval(() => {
                trigger(count);
                ++count;
@@ -235,7 +223,7 @@ export class Observable<T> implements ObservableLike<T> {
         return new Observable((trigger, done, fail) => {
             array.forEach(trigger);
             done();
-        })
+        });
     }
     static fromPromise<T>(p: Promise<T>): Observable<T> {
         return new Observable((trigger, done, fail) => {
@@ -253,7 +241,7 @@ export class Observable<T> implements ObservableLike<T> {
     }
     static empty(): Observable<any> { // ideally Never/Undefined
         return new Observable((trigger, done) => {
-            done(); 
+            done();
         });
     }
     static never(): Observable<any> { // ideally Never/Undefined
@@ -272,11 +260,11 @@ export class Subscription<T> extends Observable<T> {
         this._callbacks && this._callbacks.forEach(d => d && d.resolve());
         this._callbacks = undefined;
     }
-    
+
     // static creation functions
     static interval(timeout: number): Subscription<number> {
         return new Subscription((trigger, done) => {
-           var count = 0;
+           let count = 0;
            setInterval(() => {
                trigger(count);
                ++count;
@@ -285,7 +273,7 @@ export class Subscription<T> extends Observable<T> {
         });
     }
     static fromListener<K extends keyof HTMLElementEventMap>(element: HTMLElement, event: K): Subscription<HTMLElementEventMap[K]> {
-        var sub = new Subscription<HTMLElementEventMap[K]>((trigger, done) => {
+        const sub = new Subscription<HTMLElementEventMap[K]>((trigger, done) => {
             element.addEventListener(event, (cb: Event) => trigger(cb));
             sub.then(() => element.removeEventListener(event, trigger));
         });
