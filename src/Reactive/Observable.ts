@@ -12,7 +12,7 @@ export type Listener<T> = (obj: T) => any;
 export type Signal = () => void;
 
 // Implementation detail of Observable
-type CallbackItem<T> = { listener: Listener<T>, resolve: Signal, reject: (err: any) => void };
+export type CallbackItem<T> = { listener: Listener<T>, resolve: Signal, reject: (err: any) => void };
 
 /**
  * Provides access to a stream of events that could be listened to and operated on
