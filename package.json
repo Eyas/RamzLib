@@ -1,8 +1,11 @@
 {
-    "name": "RamzLib",
-    "authors": [ "Eyas Sharaiha" ],
+    "name": "ramz-lib",
+    "displayName": "RamzLib",
+    "authors": [
+        "Eyas Sharaiha"
+    ],
     "homepage": "https://github.com/Eyas/RamzLib/",
-    "version": "0.1.0",
+    "version": "0.2.0",
     "license": "MIT",
     "description": "A library for functional and asynchronous TypeScript",
     "keywords": [
@@ -17,13 +20,31 @@
         "url": "https://github.com/Eyas/RamzLib.git"
     },
     "devDependencies": {
-        "jasmine-core": "*",
-        "typescript": "latest",
-        "tsd": "latest",
-        "gulp": "latest",
-        "del": "latest",
-        "gulp-typescript": "latest",
-        "gulp-jasmine": "latest",
-        "merge2": "latest"
+        "@types/jest": "^21.1.1",
+        "jest": "^21.2.1",
+        "ts-jest": "^21.0.1",
+        "tslint": "^5.7.0",
+        "typescript": "^2.5.2"
+    },
+    "jest": {
+        "globals": {
+            "__TS_CONFIG__": "tsconfig.node.json"
+        },
+        "moduleFileExtensions": [
+            "ts",
+            "js"
+        ],
+        "transform": {
+            "^.+\\.(ts)$": "./node_modules/ts-jest/preprocessor.js"
+        },
+        "testMatch": [
+            "**/test/**/*.(ts|js)"
+        ],
+        "testEnvironment": "node"
+    },
+    "scripts": {
+        "build": "npm run build-ts",
+        "build-ts": "tsc",
+        "test": "jest --forceExit"
     }
 }
