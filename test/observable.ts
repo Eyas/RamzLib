@@ -2,7 +2,7 @@
 
 // This could be improved with project references-- right now we include src/**/*.ts in
 // our compilation just to get this line to work.
-import { Observable, Listener, Signal } from "../src/Reactive/Observable";
+import { Observable, Listener, Signal } from "../src/reactive/observable";
 
 
 describe("Observable", function() {
