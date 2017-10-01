@@ -1,15 +1,27 @@
 "use strict";
 
 export interface ObservableLike<T> {
-    forEach(each: (obj: T) => void): void;
+    forEach(each: (obj: T) => void): Promise<void>;
     map<R>(mapper: (obj: T) => R): ObservableLike<R>;
     flatMap<R>(mapper: (obj: T) => Observable<R>): ObservableLike<R>;
     filter(mapper: (obj: T) => boolean): ObservableLike<T>;
-    reduce<R>(initialValue: R, accumulate: (residue: R, next: T) => R): Observable<R>;
+    reduce<R>(
+        initialValue: R, accumulate: (residue: R, next: T) => R): Observable<R>;
+    withTimeout(timeoutMs: number): ObservableLike<T>;
+    withConditions(...conditions: ((obj: T) => boolean)[]): ObservableLike<T>;
+    whileConditions(...condition: ((obj: T) => boolean)[]): ObservableLike<T>;
+    subscribe(executor: (
+        unsubscribe: Signal,
+        failAndUnsubscribe: (err: any) => void
+    ) => Listener<T> | void): ObservableLike<T>;
+    firstN(n: number): ObservableLike<T>;
+    firstT(timeoutMillis: number): ObservableLike<T>;
 }
 
-export type Listener<T> = (obj: T) => any;
+export type Listener<T> = (obj: T) => void;
 export type Signal = () => void;
+
+export const ERROR_TIMEOUT = new Error("Observable timed out.");
 
 // Implementation detail of Observable
 export type CallbackItem<T> = { listener: Listener<T>, resolve: Signal, reject: (err: any) => void };
@@ -56,6 +68,7 @@ export class Observable<T> implements ObservableLike<T> {
 
         executor(trigger, done, fail);
     }
+
     forEach(each: (obj: T) => void): Promise<void> {
         if (this.isDone()) {
             // signal `done` if isDone already.
@@ -102,7 +115,10 @@ export class Observable<T> implements ObservableLike<T> {
     }
     concat(other: Observable<T>): Observable<T> {
         return new Observable<T>((trigger, done, fail) => {
-            this.forEach(trigger).then(() => other.forEach(trigger)).then(done).catch(fail);
+            this.forEach(trigger)
+                .then(() => other.forEach(trigger))
+                .then(done)
+                .catch(fail);
         });
     }
     all(predicate: (t: T) => boolean): Promise<boolean> {
@@ -112,13 +128,16 @@ export class Observable<T> implements ObservableLike<T> {
                 return;
             }
             let resolved = false;
-            this.forEach(obj => {
-                if (!predicate(obj)) {
-                    resolved = true;
-                    resolve(false);
-                }
+            this.subscribe(unsubscribe => {
+                return obj => {
+                    if (!predicate(obj)) {
+                        unsubscribe();
+                        resolved = true;
+                        resolve(false);
+                    }
+                };
             }).then(() => {
-                if (!resolved) resolve(true);
+                if (!resolved) { resolve(true); }
             }).catch(reject);
         });
     }
@@ -129,31 +148,37 @@ export class Observable<T> implements ObservableLike<T> {
                 return;
             }
             let resolved = false;
-            this.forEach(obj => {
-                if (predicate(obj)) {
-                    resolved = true;
-                    resolve(true);
-                }
+            this.subscribe(unsubscribe => {
+                return obj => {
+                    if (predicate(obj)) {
+                        unsubscribe();
+                        resolved = true;
+                        resolve(true);
+                    }
+                };
             }).then(() => {
-                if (!resolved) resolve(false);
+                if (!resolved) { resolve(false); }
             }).catch(reject);
         });
     }
 
     /**
-     * @param action  specifies the action to be taken once the observable has completed.
+     * @param action  specifies the action to be taken once this observable has
+     *                completed.
      * @returns       a Promise which resolves only when the Observable has completed.
      */
     then<R>(action: () => R): Promise<R> {
         if (this.isDone()) return Promise.resolve(action());
-        else { return new Promise((resolve, reject) => {
-            // isDone() is true iff _callbacks is undefined
-            this._callbacks!.push({
-                listener: () => {},
-                resolve: () => resolve(action()),
-                reject });
-        });
-    }
+        else {
+            return new Promise((resolve, reject) => {
+                // isDone() is true iff _callbacks is undefined
+                this._callbacks!.push({
+                    listener: () => { },
+                    resolve: () => resolve(action()),
+                    reject
+                });
+            });
+        }
     }
 
     /**
@@ -198,25 +223,169 @@ export class Observable<T> implements ObservableLike<T> {
         return this._callbacks === undefined;
     }
 
-    protected _callbacks?: (CallbackItem<T>|undefined)[] = [];
+    /**
+     * Returns a copy of this Observable that is a subscription.
+     * A subscription is an observable that can be 'unsubscribed', which no
+     * longer causes it to trigger events on its parent observable.
+     *
+     * @param executor  Supplied by the user and called immediately, executor
+     *                  allows the subscriber to unsubscribe or fail a given
+     *                  subscription. Optionally returns a listener functor to
+     *                  trigger on each event.
+     */
+    subscribe(executor: (
+        unsubscribe: Signal,
+        failAndUnsubscribe: (err: any) => void
+    ) => Listener<T> | void): Observable<T> {
+
+        if (this.isDone) {
+            return Observable.empty();
+        }
+
+        return new Observable<T>((trigger, done, fail) => {
+            const index = this._callbacks!.length;
+            const unsubscribeOnly = () => {
+                if (this._callbacks && this._callbacks[index]) {
+                    this._callbacks[index] = undefined;
+                    return true;  // unsubscribed
+                }
+                return false;  // already unsubscribed
+            };
+            const unsubscribeDone = () => {
+                if (unsubscribeOnly()) done();
+            };
+            const unsubscribeFail = (err: any) => {
+                if (unsubscribeOnly()) fail(err);
+            };
+
+            const preTrigger = (obj: T) => {
+                trigger(obj);
+                if (listener) {
+                    listener(obj);
+                }
+            };
+
+            this._callbacks!.push({
+                listener: preTrigger,
+                resolve: unsubscribeDone,
+                reject: unsubscribeFail
+            });
+
+            const listener = executor(unsubscribeDone, unsubscribeFail);
+        });
+    }
+
+    /**
+     * Returns a new Observable whose lifetime is at most timeoutMs, failing
+     * if the underlying Observable has a longer lifetime.
+     *
+     * If this Observable is done before timeoutMs, the returned Observable
+     * will be done. If this Observable fails before timeoutMs, the returned
+     * Observable will fail. If this Observable is still ongoing after
+     * timeoutMs, the returned Observable will fail.
+     *
+     * @param timeoutMs amount of time before an ongoing Observable is ended.
+     */
+    withTimeout(timeoutMs: number): Observable<T> {
+        return this.subscribe((unsubscribe, fail) => {
+            setTimeout(() => {
+                fail(ERROR_TIMEOUT);
+            }, timeoutMs);
+        });
+    }
+
+    /**
+     * @param conditions Predicates for whether obj should be included
+     * @returns a new Observable that triggers only on objects in this
+     * Observable where each condition of conditions passed applies.
+     */
+    withConditions(...conditions: ((obj: T) => boolean)[]): Observable<T> {
+        return new Observable((trigger, done, fail) => {
+            this.forEach((obj: T) => {
+                if (conditions.every(c => c(obj))) {
+                    trigger(obj);
+                }
+            }).then(done).catch(fail);
+        });
+    }
+
+    /**
+     * @param conditions Predicates for whether the Observable should be
+     *                   included. If any of these return false, the Observable
+     *                   will signal an end.
+     * @returns a new Observable that triggers all objects in this Observable
+     * until one of the condition predicates evaluates to `false` for a given
+     * event.
+     */
+    whileConditions(...conditions: ((obj: T) => boolean)[]): Observable<T> {
+        return this.subscribe((unsubscribe, fail) => {
+            return (obj: T) => {
+                if (!conditions.every(c => c(obj))) {
+                    unsubscribe();
+                }
+            };
+        });
+    }
+
+    /**
+     * Returns a new Observable based on this, with at most n events before
+     * terminating successfully.
+     * @param n The maximum number of events to include in this Observable.
+     */
+    firstN(n: number): Observable<T> {
+        if (n <= 0) return Observable.empty();
+
+        return this.subscribe(unsubscribe => {
+            return (obj: T) => {
+                if (n-- === 0) {
+                    unsubscribe();
+                }
+            };
+        });
+    }
+
+    /**
+     * Returns a new Observable whose lifetime is at most timeoutMs.
+     *
+     * If this Observable is done before timeoutMs, the returned Observable
+     * will be done. If this Observable fails before timeoutMs, the returned
+     * Observable will fail. If this Observable is still ongoing after
+     * timeoutMs, the returned Observable will be done.
+     *
+     * This is similar to withTimeout, but succeeds if the timeout elapses and
+     * the underlying Observable has not yet completed.
+     *
+     * @param timeoutMs amount of time before an ongoing Observable is ended.
+     */
+    firstT(timeoutMs: number): Observable<T> {
+        return this.subscribe(unsubscribe => {
+            setTimeout(() => {
+                unsubscribe();
+            }, timeoutMs);
+        });
+    }
+
+    protected _callbacks?: (CallbackItem<T> | undefined)[] = [];
 
     // static manipulation functions
     static merge<T>(a: Observable<T>, b: Observable<T>): Observable<T> {
-        return new Observable((trigger) => {
-            a.forEach(trigger);
-            b.forEach(trigger);
+        return new Observable((trigger, done, fail) => {
+            Promise.all([
+                a.forEach(trigger),
+                b.forEach(trigger)
+            ]).then(done).catch(fail);
         });
     }
 
     // static creation functions
     static interval(timeout: number): Observable<number> {
         return new Observable((trigger, done, fail) => {
-           let count = 0;
-           setInterval(() => {
-               trigger(count);
-               ++count;
-           }, timeout);
-           // done() is never called
+            let count = 0;
+            setInterval(() => {
+                trigger(count);
+                ++count;
+            }, timeout);
+            // done() is never called
         });
     }
     static fromArray<T>(array: T[]): Observable<T> {
@@ -227,10 +396,10 @@ export class Observable<T> implements ObservableLike<T> {
     }
     static fromPromise<T>(p: Promise<T>): Observable<T> {
         return new Observable((trigger, done, fail) => {
-           p.then(v => {
-               trigger(v);
-               done();
-           }).catch(fail);
+            p.then(v => {
+                trigger(v);
+                done();
+            }).catch(fail);
         });
     }
     static just<T>(val: T): Observable<T> {
@@ -239,24 +408,29 @@ export class Observable<T> implements ObservableLike<T> {
             done();
         });
     }
-    static empty(): Observable<any> { // ideally Never/Undefined
+    static empty(): Observable<never> {
         return new Observable((trigger, done) => {
             done();
         });
     }
-    static never(): Observable<any> { // ideally Never/Undefined
+    static never(): Observable<never> {
         return new Observable((trigger, done) => { });
+    }
+    static throw(error: Error): Observable<never> {
+        return new Observable((trigger, done, fail) => {
+            fail(error);
+        });
     }
 }
 
 /**
- * A Subscription<T> is a similar type to Observable<T> but can be unsubscribed externally
- * through the dispose() API call.
+ * A Subscription<T> is a similar type to Observable<T> but can be
+ * unsubscribed externally through the dispose() API call.
  */
 export class Subscription<T> extends Observable<T> {
-
     dispose(): void {
-        // we'll just re-implement done again, better than exposing it to the naughties
+        // we'll just re-implement done again, better than exposing it to the
+        // naughties
         this._callbacks && this._callbacks.forEach(d => d && d.resolve());
         this._callbacks = undefined;
     }
@@ -264,19 +438,22 @@ export class Subscription<T> extends Observable<T> {
     // static creation functions
     static interval(timeout: number): Subscription<number> {
         return new Subscription((trigger, done) => {
-           let count = 0;
-           setInterval(() => {
-               trigger(count);
-               ++count;
-           }, timeout);
-           // done() is never called
+            let count = 0;
+            setInterval(() => {
+                trigger(count);
+                ++count;
+            }, timeout);
+            // done() is never called
         });
     }
-    static fromListener<K extends keyof HTMLElementEventMap>(element: HTMLElement, event: K): Subscription<HTMLElementEventMap[K]> {
-        const sub = new Subscription<HTMLElementEventMap[K]>((trigger, done) => {
-            element.addEventListener(event, (cb: Event) => trigger(cb));
-            sub.then(() => element.removeEventListener(event, trigger));
-        });
+    static fromListener<K extends keyof HTMLElementEventMap>(
+        element: HTMLElement, event: K): Subscription<HTMLElementEventMap[K]> {
+
+        const sub = new Subscription<HTMLElementEventMap[K]>(
+            (trigger, done) => {
+                element.addEventListener(event, (cb: Event) => trigger(cb));
+                sub.then(() => element.removeEventListener(event, trigger));
+            });
         return sub;
     }
 }
