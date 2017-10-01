@@ -1,4 +1,7 @@
 {
     "tslint.enable": true,
-    "tslint.configFile": "tslint.json"
+    "tslint.configFile": "tslint.json",
+    "editor.rulers": [
+        80, 100, 120
+    ]
 }
