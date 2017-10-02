@@ -465,7 +465,7 @@ export class Subscription<T> extends Observable<T> {
 
         const sub = new Subscription<HTMLElementEventMap[K]>(
             (trigger, done) => {
-                element.addEventListener(event, (cb: Event) => trigger(cb));
+                element.addEventListener( event, cb => trigger(cb));
                 sub.then(() => element.removeEventListener(event, trigger));
             });
         return sub;
