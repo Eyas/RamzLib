@@ -24,11 +24,13 @@ export type Signal = () => void;
 export const ERROR_TIMEOUT = new Error("Observable timed out.");
 
 // Implementation detail of Observable
-type CallbackItem<T> = { listener: Listener<T>, resolve: Signal, reject: (err: any) => void };
+type CallbackItem<T> = {
+    listener: Listener<T>, resolve: Signal, reject: (err: any) => void
+};
 
 /**
- * Provides access to a stream of events that could be listened to and operated on
- * through a series of monad interfaces.
+ * Provides access to a stream of events that could be listened to and operated
+ * on through a series of monad interfaces.
  */
 export class Observable<T> implements ObservableLike<T> {
     // caller of Observable<T> constructor should do something similar
@@ -38,7 +40,11 @@ export class Observable<T> implements ObservableLike<T> {
     //     ... call done() once complete
     //     ... call fail(err) with error if a failed condition happens
     // })
-    constructor(executor: (trigger: (obj: T) => void, done: Signal, fail: (err: any) => void) => void) {
+    constructor(
+        executor: (trigger: (obj: T) => void,
+                   done: Signal,
+                   fail: (err: any) => void) => void
+    ) {
         const trigger = (obj: T) => {
             // we choose to silently no-op if trigger happens after done
             this._callbacks && this._callbacks.forEach((cb, idx) => {
@@ -163,9 +169,9 @@ export class Observable<T> implements ObservableLike<T> {
     }
 
     /**
+     * Returns a Promise which resolves only when the Observable has completed.
      * @param action  specifies the action to be taken once this observable has
      *                completed.
-     * @returns       a Promise which resolves only when the Observable has completed.
      */
     then<R>(action: () => R): Promise<R> {
         if (this.isDone()) return Promise.resolve(action());
@@ -205,8 +211,9 @@ export class Observable<T> implements ObservableLike<T> {
     }
 
     /**
+     * Returns a new observable which triggers on each event after
+     * milliseconds
      * @param t  interval to skip before events are issued
-     * @returns  a new observable which triggers on each event after t milliseconds.
      */
     skipT(t: number): Observable<T> {
         return new Observable<T>((trigger, done, fail) => {
