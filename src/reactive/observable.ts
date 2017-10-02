@@ -24,7 +24,7 @@ export type Signal = () => void;
 export const ERROR_TIMEOUT = new Error("Observable timed out.");
 
 // Implementation detail of Observable
-export type CallbackItem<T> = { listener: Listener<T>, resolve: Signal, reject: (err: any) => void };
+type CallbackItem<T> = { listener: Listener<T>, resolve: Signal, reject: (err: any) => void };
 
 /**
  * Provides access to a stream of events that could be listened to and operated on
@@ -365,7 +365,7 @@ export class Observable<T> implements ObservableLike<T> {
         });
     }
 
-    protected _callbacks?: (CallbackItem<T> | undefined)[] = [];
+    private _callbacks?: (CallbackItem<T> | undefined)[] = [];
 
     // static manipulation functions
     static merge<T>(a: Observable<T>, b: Observable<T>): Observable<T> {
@@ -428,11 +428,18 @@ export class Observable<T> implements ObservableLike<T> {
  * unsubscribed externally through the dispose() API call.
  */
 export class Subscription<T> extends Observable<T> {
-    dispose(): void {
-        // we'll just re-implement done again, better than exposing it to the
-        // naughties
-        this._callbacks && this._callbacks.forEach(d => d && d.resolve());
-        this._callbacks = undefined;
+
+    public dispose: () => void;
+
+    constructor(
+        executor: (trigger: Listener<T>,
+                   done: Signal,
+                   fail: Listener<any>) => void
+    ) {
+        super((trigger, done, fail) => {
+            this.dispose = done;
+            executor(trigger, done, fail);
+        });
     }
 
     // static creation functions
